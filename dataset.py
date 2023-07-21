@@ -5,10 +5,6 @@ import numpy as np
 import pandas as pd
 import torch
 
-import matplotlib.pyplot as plt
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-
 
 class ShipDataset(Dataset):
     def __init__(self, root_dir, csv_file, transform=None):
@@ -65,7 +61,7 @@ class ShipDataset(Dataset):
         image = np.array(self._load_images(idx=index))
         image = image.astype(np.float32) / 255.0
         image_name = os.listdir(self.root_dir)[index]
-        mask = np.array(torch.tensor(self._load_masks(image_name=image_name)).repeat(3, 1, 1).permute(1, 2, 0)) / 1.0
+        mask = np.array(torch.tensor(self._load_masks(image_name=image_name)).repeat(1, 1, 1).float().permute(1, 2, 0)) / 1.0
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
@@ -76,33 +72,3 @@ class ShipDataset(Dataset):
             mask = torch.tensor(mask).permute(2, 0, 1)
 
         return image, mask
-
-transform = A.Compose([A.RandomBrightnessContrast(p=0.5),
-                       A.HorizontalFlip(p=0.5),
-                       A.VerticalFlip(p=0.5),
-                       A.Rotate(limit=45, p=0.5),
-                       A.RandomScale(scale_limit=0.2, p=0.5),
-                       A.RandomCrop(height=600, width=600, p=0.5),
-                       A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=45, p=0.5),
-                       A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=0, val_shift_limit=0, p=0.5),
-                       ToTensorV2()])
-
-a = ShipDataset(root_dir='./airbus-ship-detection/train',
-                csv_file='./airbus-ship-detection/train_ship_segmentations_v2.csv',
-                transform=transform)
-
-b = a[345]
-
-plt.figure(figsize=(10, 5))
-
-# Plot the image
-plt.subplot(1, 2, 1)
-plt.imshow(b[0].permute(1, 2, 0))
-plt.title("Image")
-
-# Plot the mask
-plt.subplot(1, 2, 2)
-plt.imshow(b[1].permute(1, 2, 0))
-plt.title("Mask")
-
-plt.show()
