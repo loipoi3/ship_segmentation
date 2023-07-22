@@ -1,22 +1,20 @@
 from torch.utils.data import DataLoader
-from config import (SAVED_MODEL_PATH,
-                    DEVICE,
-                    NUM_EPOCHS,
-                    LEARNING_RATE,
-                    BATCH_SIZE,
-                    ROOT_DIR_TRAIN,
-                    LOAD_MODEL,
-                    PATH_TO_MODEL,
-                    CSV_FILE,
-                    TRANSFORM_TRAIN,
-                    TRANSFORM_VAL_TEST)
 import os
 import segmentation_models_pytorch as smp
-from dataset import ShipDataset
 import torch
+from config import (TRANSFORM_TRAIN,
+                    TRANSFORM_VAL_TEST,
+                    DEVICE,
+                    SAVED_MODEL_PATH,
+                    ROOT_DIR_TRAIN,
+                    CSV_FILE,
+                    BATCH_SIZE,
+                    LOAD_MODEL,
+                    PATH_TO_MODEL,
+                    LEARNING_RATE,
+                    NUM_EPOCHS)
+from dataset import ShipDataset
 from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss
-import torch.optim as optim
-from utils import calculate_dice_coefficient
 
 
 # Define a collate function for the training dataset
@@ -25,7 +23,7 @@ def train_collate_fn(batch):
     transformed_images = []
     transformed_masks = []
     for idx in range(len(images)):
-        augmented = TRANSFORM_TRAIN(image=images[idx].permute(1, 2, 0).numpy(),
+        augmented = TRANSFORM_TRAIN(image=images[idx].numpy(),
                                     mask=masks[idx].permute(1, 2, 0).numpy())
         transformed_images.append(augmented['image'])
         transformed_masks.append(augmented['mask'].permute(2, 0, 1))
@@ -38,14 +36,14 @@ def val_test_collate_fn(batch):
     transformed_images = []
     transformed_masks = []
     for idx in range(len(images)):
-        augmented = TRANSFORM_VAL_TEST(image=images[idx].permute(1, 2, 0).numpy(),
+        augmented = TRANSFORM_VAL_TEST(image=images[idx].numpy(),
                                        mask=masks[idx].permute(1, 2, 0).numpy())
         transformed_images.append(augmented['image'])
         transformed_masks.append(augmented['mask'].permute(2, 0, 1))
     return torch.stack(transformed_images), torch.stack(transformed_masks)
 
 
-def train_loop(model, criterion, optimizer, loader, scaler, losses, metrics):
+def train_loop(model, criterion, optimizer, loader, scaler):
     model.train()
 
     for idx, (img, mask) in enumerate(loader):
@@ -55,14 +53,20 @@ def train_loop(model, criterion, optimizer, loader, scaler, losses, metrics):
 
         with torch.cuda.amp.autocast():
             # making prediction
-            tensor_zeros = torch.zeros(3, 768, 768)
-            pred = model(img) + tensor_zeros.to(DEVICE)
-
+            pred = model(img)
+            print(pred)
             # calculate loss and dice coeficient and append it to losses and metrics
             Loss = criterion(pred, mask)
-            losses.append(Loss.item())
-            dice_coef = calculate_dice_coefficient(predicted_tensor=pred, ground_truth_tensor=mask)
-            metrics.append(dice_coef)
+            pred = torch.sigmoid(pred)
+            if idx % 10 == 0:
+                tp, fp, fn, tn = smp.metrics.get_stats(pred > 0.5, mask.to(torch.int64), mode='binary', num_classes=1)
+                iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+                f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
+                f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
+                accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
+                recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
+                print(f"train_loss: {Loss.item()}, iou_score: {iou_score}, f1_score: {f1_score}, f2_score: {f2_score}, "
+                      f"accuracy: {accuracy}, recall:{recall}")
 
         # backward
         optimizer.zero_grad()
@@ -71,7 +75,7 @@ def train_loop(model, criterion, optimizer, loader, scaler, losses, metrics):
         scaler.update()
 
 
-def val_loop(model, criterion, loader, losses, metrics):
+def val_loop(model, criterion, loader):
     model.eval()
 
     with torch.no_grad():
@@ -81,17 +85,23 @@ def val_loop(model, criterion, loader, losses, metrics):
             mask = mask.to(DEVICE)
 
             # making prediction
-            tensor_zeros = torch.zeros(3, 768, 768)
-            pred = model(img) + tensor_zeros.to(DEVICE)
+            pred = model(img)
 
             # calculate loss and dice coefficient and append it to losses and metrics
             Loss = criterion(pred, mask)
-            losses.append(Loss.item())
-            dice_coef = calculate_dice_coefficient(predicted_tensor=pred, ground_truth_tensor=mask)
-            metrics.append(dice_coef)
+            pred = torch.sigmoid(pred)
+            if idx % 10 == 0:
+                tp, fp, fn, tn = smp.metrics.get_stats(pred > 0.5, mask.to(torch.int64), mode='binary', num_classes=1)
+                iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+                f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
+                f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
+                accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
+                recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
+                print(f"val_loss: {Loss.item()}, iou_score: {iou_score}, f1_score: {f1_score}, f2_score: {f2_score}, "
+                      f"accuracy: {accuracy}, recall:{recall}")
 
 
-def test_loop(model, criterion, loader, losses, metrics):
+def test_loop(model, criterion, loader):
     model.eval()
 
     with torch.no_grad():
@@ -101,14 +111,20 @@ def test_loop(model, criterion, loader, losses, metrics):
             mask = mask.to(DEVICE)
 
             # making prediction
-            tensor_zeros = torch.zeros(3, 768, 768)
-            pred = model(img) + tensor_zeros.to(DEVICE)
+            pred = model(img)
 
             # calculate loss and dice coefficient and append it to losses and metrics
             Loss = criterion(pred, mask)
-            losses.append(Loss.item())
-            dice_coef = calculate_dice_coefficient(predicted_tensor=pred, ground_truth_tensor=mask)
-            metrics.append(dice_coef)
+            pred = torch.sigmoid(pred)
+            if idx % 10 == 0:
+                tp, fp, fn, tn = smp.metrics.get_stats(pred > 0.5, mask.to(torch.int64), mode='binary', num_classes=1)
+                iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+                f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
+                f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
+                accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
+                recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
+                print(f"test_loss: {Loss.item()}, iou_score: {iou_score}, f1_score: {f1_score}, f2_score: {f2_score}, "
+                      f"accuracy: {accuracy}, recall:{recall}")
 
 
 def main():
@@ -116,13 +132,13 @@ def main():
     if not os.path.exists(SAVED_MODEL_PATH):
         os.makedirs(SAVED_MODEL_PATH)
 
-
     # define model and move it to device(gpu or cpu)
     model = smp.Unet(
         encoder_name="resnet34",  # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
         encoder_weights="imagenet",  # use `imagenet` pre-trained weights for encoder initialization
         in_channels=3,  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
         classes=1,  # model output channels (number of classes in your dataset)
+        activation=None
     )
     model.to(DEVICE)
 
@@ -155,60 +171,28 @@ def main():
             encoder_weights="imagenet",  # use `imagenet` pre-trained weights for encoder initialization
             in_channels=3,  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
             classes=1,  # model output channels (number of classes in your dataset)
-            )
+        )
         model.to(DEVICE)
         model.load_state_dict(torch.load(PATH_TO_MODEL))
 
     # define loss function
     criterion = SoftBCEWithLogitsLoss()
 
-    # define optimizer
+    # Create optimizer only for trainable parameters
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     # define scaler
     scaler = torch.cuda.amp.GradScaler()
 
-    # define Learning Rate Scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3, verbose=True)
-
     for epoch in range(NUM_EPOCHS):
         print(f'Epoch: {epoch + 1}')
 
-        losses_train, metrics_train =[], []
-
-        train_loop(model, criterion, optimizer, train_loader, scaler, losses_train, metrics_train)
-
-        # calculate mean loss and accuracy on train
-        mean_loss_train = sum(losses_train) / len(losses_train)
-        mean_dice_coef_train = sum(metrics_train) / len(metrics_train)
-
-        print(f"Training Loss: {mean_loss_train} | Training Accuracy: {mean_dice_coef_train}")
-
-        losses_val, metrics_val = [], []
-
-        val_loop(model, criterion, val_loader, losses_val, metrics_val)
-
-        # calculate mean loss and accuracy on train
-        mean_loss_val = sum(losses_val) / len(losses_val)
-        mean_dice_coef_val = sum(metrics_val) / len(metrics_val)
-
-        print(f"Training Loss: {mean_loss_val} | Training Accuracy: {mean_dice_coef_val}")
-
-        losses_test, metrics_test = [], []
-
-        test_loop(model, criterion, test_loader, losses_test, metrics_test)
-
-        # calculate mean loss and accuracy on train
-        mean_loss_test = sum(losses_test) / len(losses_test)
-        mean_dice_coef_test = sum(metrics_test) / len(metrics_test)
-
-        print(f"Training Loss: {mean_loss_test} | Training Accuracy: {mean_dice_coef_test}")
+        train_loop(model, criterion, optimizer, train_loader, scaler)
+        val_loop(model, criterion, val_loader)
+        test_loop(model, criterion, test_loader)
 
         # save model
-        torch.save(model.state_dict(), SAVED_MODEL_PATH + f'/model{epoch + 1}.pth')
-
-        # update scheduler
-        scheduler.step(mean_loss_train)
+        torch.save(model.state_dict(), SAVED_MODEL_PATH + f'model{epoch + 1}.pth')
 
 
 if __name__ == '__main__':

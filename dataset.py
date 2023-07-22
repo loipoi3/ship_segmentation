@@ -61,15 +61,14 @@ class ShipDataset(Dataset):
         image = np.array(self._load_images(idx=index))
         image = image.astype(np.float32) / 255.0
         image_name = os.listdir(self.root_dir)[index]
-        tensor_zeros = torch.zeros(3, 768, 768)
-        mask = np.array((torch.tensor(self._load_masks(image_name=image_name)) + tensor_zeros).float().permute(1, 2, 0)) / 1.0
+        mask = np.array(torch.tensor(self._load_masks(image_name=image_name)).unsqueeze(0).float()) / 1.0
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
             image = augmentations['image']
-            mask = augmentations['mask'].permute(2, 0, 1)
+            mask = augmentations['mask']
         else:
-            image = torch.tensor(image).permute(2, 0, 1)
-            mask = torch.tensor(mask).permute(2, 0, 1)
+            image = torch.tensor(image)
+            mask = torch.tensor(mask)
 
         return image, mask
