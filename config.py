@@ -10,7 +10,7 @@ LEARNING_RATE = 0.001
 BATCH_SIZE = 2
 ROOT_DIR_TRAIN = './airbus-ship-detection/train_v2'
 LOAD_MODEL = False
-PATH_TO_MODEL = './models/model.pth'
+PATH_TO_MODEL = './model.pth'
 CSV_FILE = './airbus-ship-detection/train_ship_segmentations_v2.csv'
 TRANSFORM_TRAIN = A.Compose([A.RandomBrightnessContrast(p=0.5),
                              A.HorizontalFlip(p=0.5),

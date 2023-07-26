@@ -2,19 +2,8 @@ from torch.utils.data import DataLoader
 import os
 import segmentation_models_pytorch as smp
 import torch
-from config import (TRANSFORM_TRAIN,
-                    TRANSFORM_VAL_TEST,
-                    DEVICE,
-                    SAVED_MODEL_PATH,
-                    ROOT_DIR_TRAIN,
-                    CSV_FILE,
-                    BATCH_SIZE,
-                    LOAD_MODEL,
-                    PATH_TO_MODEL,
-                    LEARNING_RATE,
-                    NUM_EPOCHS)
-from dataset import ShipDataset
 from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss
+from torch import nn
 
 
 # Define a collate function for the training dataset
@@ -46,6 +35,7 @@ def val_test_collate_fn(batch):
 def train_loop(model, criterion, optimizer, loader, scaler):
     model.train()
 
+    losses, iou_scores, f1_scores, f2_scores, accuracys, recalls = [], [], [], [], [], []
     for idx, (img, mask) in enumerate(loader):
         # move data and targets to device(gpu or cpu)
         img = img.float().to(DEVICE)
@@ -54,31 +44,39 @@ def train_loop(model, criterion, optimizer, loader, scaler):
         with torch.cuda.amp.autocast():
             # making prediction
             pred = model(img)
-            print(pred)
+
             # calculate loss and dice coeficient and append it to losses and metrics
             Loss = criterion(pred, mask)
-            pred = torch.sigmoid(pred)
-            if idx % 10 == 0:
-                tp, fp, fn, tn = smp.metrics.get_stats(pred > 0.5, mask.to(torch.int64), mode='binary', num_classes=1)
-                iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
-                f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
-                f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
-                accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
-                recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
-                print(f"train_loss: {Loss.item()}, iou_score: {iou_score}, f1_score: {f1_score}, f2_score: {f2_score}, "
-                      f"accuracy: {accuracy}, recall:{recall}")
+
+            tp, fp, fn, tn = smp.metrics.get_stats(torch.sigmoid(pred) > 0.5, mask.to(torch.int64), mode='binary',
+                                                   num_classes=1)
+            iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+            f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
+            f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
+            accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
+            recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
+
+            losses.append(Loss.item())
+            iou_scores.append(iou_score)
+            f1_scores.append(f1_score)
+            f2_scores.append(f2_score)
+            accuracys.append(accuracy)
+            recalls.append(recall)
 
         # backward
         optimizer.zero_grad()
         scaler.scale(Loss).backward()
         scaler.step(optimizer)
         scaler.update()
+    print(
+        f"train_loss: {sum(losses) / len(losses)}, iou_score: {sum(iou_scores) / len(iou_scores)}, f1_score: {sum(f1_scores) / len(f1_scores)}, f2_score: {sum(f2_scores) / len(f2_scores)}, accuracy: {sum(accuracys) / len(accuracys)}, recall:{sum(recalls) / len(recalls)}")
 
 
 def val_loop(model, criterion, loader):
     model.eval()
 
     with torch.no_grad():
+        losses, iou_scores, f1_scores, f2_scores, accuracys, recalls = [], [], [], [], [], []
         for idx, (img, mask) in enumerate(loader):
             # move data and targets to device(gpu or cpu)
             img = img.float().to(DEVICE)
@@ -89,22 +87,31 @@ def val_loop(model, criterion, loader):
 
             # calculate loss and dice coefficient and append it to losses and metrics
             Loss = criterion(pred, mask)
-            pred = torch.sigmoid(pred)
-            if idx % 10 == 0:
-                tp, fp, fn, tn = smp.metrics.get_stats(pred > 0.5, mask.to(torch.int64), mode='binary', num_classes=1)
-                iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
-                f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
-                f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
-                accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
-                recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
-                print(f"val_loss: {Loss.item()}, iou_score: {iou_score}, f1_score: {f1_score}, f2_score: {f2_score}, "
-                      f"accuracy: {accuracy}, recall:{recall}")
+
+            tp, fp, fn, tn = smp.metrics.get_stats(torch.sigmoid(pred) > 0.5, mask.to(torch.int64), mode='binary',
+                                                   num_classes=1)
+            iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+            f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
+            f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
+            accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
+            recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
+
+            losses.append(Loss.item())
+            iou_scores.append(iou_score)
+            f1_scores.append(f1_score)
+            f2_scores.append(f2_score)
+            accuracys.append(accuracy)
+            recalls.append(recall)
+
+        print(
+            f"val_loss: {sum(losses) / len(losses)}, iou_score: {sum(iou_scores) / len(iou_scores)}, f1_score: {sum(f1_scores) / len(f1_scores)}, f2_score: {sum(f2_scores) / len(f2_scores)}, accuracy: {sum(accuracys) / len(accuracys)}, recall:{sum(recalls) / len(recalls)}")
 
 
 def test_loop(model, criterion, loader):
     model.eval()
 
     with torch.no_grad():
+        losses, iou_scores, f1_scores, f2_scores, accuracys, recalls = [], [], [], [], [], []
         for idx, (img, mask) in enumerate(loader):
             # move data and targets to device(gpu or cpu)
             img = img.float().to(DEVICE)
@@ -115,16 +122,23 @@ def test_loop(model, criterion, loader):
 
             # calculate loss and dice coefficient and append it to losses and metrics
             Loss = criterion(pred, mask)
-            pred = torch.sigmoid(pred)
-            if idx % 10 == 0:
-                tp, fp, fn, tn = smp.metrics.get_stats(pred > 0.5, mask.to(torch.int64), mode='binary', num_classes=1)
-                iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
-                f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
-                f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
-                accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
-                recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
-                print(f"test_loss: {Loss.item()}, iou_score: {iou_score}, f1_score: {f1_score}, f2_score: {f2_score}, "
-                      f"accuracy: {accuracy}, recall:{recall}")
+
+            tp, fp, fn, tn = smp.metrics.get_stats(torch.sigmoid(pred) > 0.5, mask.to(torch.int64), mode='binary',
+                                                   num_classes=1)
+            iou_score = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+            f1_score = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro")
+            f2_score = smp.metrics.fbeta_score(tp, fp, fn, tn, beta=2, reduction="micro")
+            accuracy = smp.metrics.accuracy(tp, fp, fn, tn, reduction="macro")
+            recall = smp.metrics.recall(tp, fp, fn, tn, reduction="micro-imagewise")
+
+            losses.append(Loss.item())
+            iou_scores.append(iou_score)
+            f1_scores.append(f1_score)
+            f2_scores.append(f2_score)
+            accuracys.append(accuracy)
+            recalls.append(recall)
+        print(
+            f"test_loss: {sum(losses) / len(losses)}, iou_score: {sum(iou_scores) / len(iou_scores)}, f1_score: {sum(f1_scores) / len(f1_scores)}, f2_score: {sum(f2_scores) / len(f2_scores)}, accuracy: {sum(accuracys) / len(accuracys)}, recall:{sum(recalls) / len(recalls)}")
 
 
 def main():
@@ -154,7 +168,7 @@ def main():
     val_size = int(val_ratio * total_samples)
     test_size = total_samples - train_size - val_size
 
-    # SSplit the dataset into train, val, and test subsets using the torch.utils.data.random_split function.
+    # Split the dataset into train, val, and test subsets using the torch.utils.data.random_split function.
     train_dataset, remaining_dataset = torch.utils.data.random_split(ship_dataset,
                                                                      [train_size, total_samples - train_size])
     val_dataset, test_dataset = torch.utils.data.random_split(remaining_dataset, [val_size, test_size])
