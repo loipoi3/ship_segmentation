@@ -3,7 +3,18 @@ import os
 import segmentation_models_pytorch as smp
 import torch
 from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss
-from torch import nn
+from config import (TRANSFORM_TRAIN,
+                    TRANSFORM_VAL_TEST,
+                    DEVICE,
+                    SAVED_MODEL_PATH,
+                    CSV_FILE,
+                    ROOT_DIR_TRAIN,
+                    BATCH_SIZE,
+                    LOAD_MODEL,
+                    PATH_TO_MODEL,
+                    LEARNING_RATE,
+                    NUM_EPOCHS)
+from dataset import ShipDataset
 
 
 # Define a collate function for the training dataset
